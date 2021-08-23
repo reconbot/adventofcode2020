@@ -1,27 +1,55 @@
 use std::collections::HashSet;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
 
-#[derive(Debug, Eq)]
-struct Bag<'a> {
-	name: String,
-	parents: HashSet<Quantity<&'a Bag<'a>>>,
-	children: HashSet<Quantity<&'a Bag<'a>>>
+#[derive(Debug)]
+struct BagRef {
+	bag: Weak<Bag>
 }
 
-impl <'a> Hash for Bag<'a> {
+impl BagRef {
+	fn new(bag: Weak<Bag>) -> Self {
+		Self {
+			bag: bag
+		}
+	}}
+
+impl PartialEq for BagRef {
+	fn eq(&self, other: &Self) -> bool {
+		self.bag.upgrade().unwrap() == other.bag.upgrade().unwrap()
+	}
+}
+
+impl Eq for BagRef {}
+
+impl Hash for BagRef {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.bag.upgrade().unwrap().hash(state);
+	}
+}
+
+#[derive(Debug, Eq)]
+struct Bag {
+	name: String,
+	parents: HashSet<BagRef>,
+	children: HashSet<BagRef>
+}
+
+impl Hash for Bag {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 			self.name.hash(state);
 	}
 }
 
-impl <'a> PartialEq for Bag<'a> {
+impl PartialEq for Bag {
 	fn eq(&self, other: &Self) -> bool {
 			self.name == other.name
 	}
 }
 
-impl <'a> Bag<'a> {
+impl Bag {
 	fn new(name: String) -> Self {
 		Self {
 			name: name,
@@ -31,42 +59,45 @@ impl <'a> Bag<'a> {
 	}
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct Quantity<T> {
-	number: i32,
-	item: T,
+
+#[derive(Debug)]
+struct BagGraph {
+	map: HashMap<String, Rc<RefCell<Bag>>>,
 }
 
-struct BagGraph<'a> {
-	map: HashMap<String, Bag<'a>>,
-}
-
-impl <'a> BagGraph<'a> {
+impl BagGraph {
 	fn new() -> Self {
 		Self {
 			map: HashMap::new()
 		}
 	}
 
-	fn add(self: &mut Self, parent_name: &str, contains: i32, child_name: &str) {
-		let parent = self.map.entry(parent_name.to_string()).or_insert(Bag::new(parent_name.to_string()));
-		let child = self.map.entry(child_name.to_string()).or_insert(Bag::new(child_name.to_string()));
-		parent.children.insert(Quantity{
-			number: contains,
-			item: child,
-		});
-		child.parents.insert(Quantity{
-			number: contains,
-			item: parent,
-		});
+	fn add(self: &mut Self, parent_name: &str, child_name: &str) {
+		if !self.map.contains_key(parent_name) {
+			self.map.insert(parent_name.to_string(), Rc::new(RefCell::new(Bag::new(parent_name.to_string()))));
+		}
+		if !self.map.contains_key(child_name) {
+			self.map.insert(child_name.to_string(), Rc::new(RefCell::new(Bag::new(child_name.to_string()))));
+		}
+		let parent = self.map.get(parent_name).unwrap();
+		let child = self.map.get(child_name).unwrap();
+
+		let mut children = parent.borrow_mut().children;
+		let mut parents = parent.borrow_mut().parents;
+
+		children.insert(BagRef::new(Rc::<Bag>::downgrade(child)));
+		parents.insert(BagRef::new(Rc::<Bag>::downgrade(parent)));
 	}
 }
 
 fn main() {
 	let file = include_str!("./day7.txt");
-	let mut bags= BagGraph::new();
+	let mut bags = BagGraph::new();
 	// dotted tomato bags contain 3 dotted maroon bags.
-	bags.add("dotted tomato", 3, "dotted maroon");
-	// posh purple bags contain 3 drab turquoise bags, 3 dark olive bags, 4 posh lime bags, 1 posh orange bag.
-	// vibrant beige bags contain 2 mirrored violet bags, 1 mirrored white bag, 1 wavy violet bag.
+	bags.add("dotted tomato", "dotted maroon");
+	bags.add("posh purple bags", "drab turquoise bags");
+	bags.add("posh purple bags", "dark olive bags");
+	bags.add("posh purple bags", "dotted tomato");
+
+	println!("{:?}", bags);
 }
